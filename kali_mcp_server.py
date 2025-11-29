@@ -349,7 +349,24 @@ if __name__ == "__main__":
         # Create artifact bucket if needed
         if ARTIFACT_STORE_TYPE in ("minio", "s3"):
             ensure_bucket()
-        mcp.run(transport="stdio")
+        
+        # Check if we should use HTTP transport (for Smithery/deployment) or stdio (for local dev)
+        transport_type = os.environ.get("MCP_TRANSPORT", "stdio")
+        if transport_type == "http":
+            # HTTP transport for Smithery deployment using SSE (Server-Sent Events)
+            try:
+                import uvicorn
+                port = int(os.environ.get("PORT", "8081"))
+                host = os.environ.get("HOST", "0.0.0.0")
+                logger.info(f"Starting HTTP server on {host}:{port}")
+                # FastMCP supports SSE transport which implements Streamable HTTP
+                mcp.run(transport="sse", host=host, port=port)
+            except ImportError:
+                logger.error("uvicorn is required for HTTP transport. Install with: pip install uvicorn")
+                sys.exit(1)
+        else:
+            # Stdio transport for local development
+            mcp.run(transport="stdio")
     except Exception as e:
         logger.error(f"Server error: {e}", exc_info=True)
         sys.exit(1)

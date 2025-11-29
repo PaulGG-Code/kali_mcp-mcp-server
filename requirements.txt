@@ -4,3 +4,4 @@ boto3
 aiofiles
 python-dotenv
 frida-tools
+uvicorn
