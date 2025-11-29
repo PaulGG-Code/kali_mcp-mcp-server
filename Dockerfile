@@ -1,10 +1,10 @@
-# CTF Solver - AI-Powered Offensive Security Toolkit
-# Based on Kali Linux with 55+ security tools
+# Kali MCP Server - AI-Powered Penetration Testing Toolkit
+# Based on Kali Linux with comprehensive security tools
 
 FROM kalilinux/kali-rolling:latest
 
-LABEL maintainer="foxibu"
-LABEL description="AI-Powered CTF Solver with 55+ Kali Linux security tools"
+LABEL maintainer="kali_mcp"
+LABEL description="Kali MCP Server - Model Context Protocol server for Kali Linux penetration testing tools"
 LABEL version="1.0.0"
 
 # Prevent interactive prompts during installation

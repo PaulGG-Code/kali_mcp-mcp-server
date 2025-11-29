@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
+"""
+Kali MCP Server - Model Context Protocol server for Kali Linux penetration testing tools.
 
-# This script connect the MCP AI agent to Kali Linux terminal and API Server.
-
-# some of the code here was inspired from https://github.com/whit3rabbit0/project_astro , be sure to check them out
+This MCP server exposes Kali Linux security tools through the Model Context Protocol,
+enabling AI agents to perform penetration testing, security assessments, and CTF challenges.
+"""
 
 import sys
 import os
@@ -126,7 +128,7 @@ def setup_mcp_server(kali_client: KaliToolsClient) -> FastMCP:
     Returns:
         Configured FastMCP instance
     """
-    mcp = FastMCP("kali-mcp")
+    mcp = FastMCP("kali_mcp")
     
     @mcp.tool(annotations={
         "readOnlyHint": True,
@@ -2728,7 +2730,7 @@ def create_server() -> FastMCP:
 
 def parse_args():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Run the Kali MCP Client")
+    parser = argparse.ArgumentParser(description="Run the Kali MCP Server")
     parser.add_argument("--server", type=str, default=DEFAULT_KALI_SERVER, 
                       help=f"Kali API server URL (default: {DEFAULT_KALI_SERVER})")
     parser.add_argument("--timeout", type=int, default=DEFAULT_REQUEST_TIMEOUT,

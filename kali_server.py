@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
+"""
+Kali Tools API Server - Flask API server for executing Kali Linux penetration testing tools.
 
-# This script connect the MCP AI agent to Kali Linux terminal and API Server.
-
-# some of the code here was inspired from https://github.com/whit3rabbit0/project_astro , be sure to check them out
+This server provides a REST API interface for running security tools and managing
+analysis sessions. It is used by the Kali MCP Server to execute tools in a controlled environment.
+"""
 
 import argparse
 import json

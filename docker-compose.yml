@@ -1,12 +1,12 @@
 version: '3.8'
 
 services:
-  ctf-solver:
+  kali-mcp-server:
     build:
       context: .
       dockerfile: Dockerfile
-    image: foxibu/ctf-solver:latest
-    container_name: ctf-solver
+    image: kali-mcp-server:latest
+    container_name: kali-mcp-server
     ports:
       - "5000:5000"
     volumes:
@@ -21,7 +21,7 @@ services:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
     networks:
-      - ctf-network
+      - kali-mcp-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 30s
@@ -39,7 +39,7 @@ services:
           memory: 4G
 
 networks:
-  ctf-network:
+  kali-mcp-network:
     driver: bridge
 
 volumes:
