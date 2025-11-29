@@ -49,11 +49,6 @@ Tool returns a string containing JSON result:
 - Rotate API keys and move to a secure secrets store for production.
 - Artifacts containing sensitive information should be purged per retention policy.
 
-## Development
-
-- Edit `kali_mcp_server.py` to add tools. Keep docstrings single-line only.
-- Rebuild Docker image after changes.
-
 ## License
 
 MIT

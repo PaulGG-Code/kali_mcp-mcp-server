@@ -1,7 +1,5 @@
-mcp[cli]>=1.2.0
-httpx
-boto3
-aiofiles
-python-dotenv
-frida-tools
-uvicorn
+mcp>=1.13.0
+smithery>=0.1.23
+requests
+flask>=3.0.0
+pexpect>=4.9.0
