@@ -6,6 +6,9 @@ build:
 
 startCommand:
   type: "http"
+  timeout: 120000
+  pingInterval: 5000
+  pingTimeout: 30000
 
 env:
   MCP_TRANSPORT: "http"
