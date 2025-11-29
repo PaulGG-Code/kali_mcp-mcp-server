@@ -6,44 +6,6 @@ build:
 
 startCommand:
   type: "http"
-  configSchema:
-    type: "object"
-    properties:
-      artifactStore:
-        type: "string"
-        description: "Artifact storage type: minio, s3, or local"
-        default: "local"
-        enum: ["minio", "s3", "local"]
-      artifactBucket:
-        type: "string"
-        description: "S3/MinIO bucket name for artifacts"
-        default: "kali-mcp-artifacts"
-      minioEndpoint:
-        type: "string"
-        description: "MinIO endpoint URL (if using minio storage)"
-        default: "http://minio:9000"
-      minioAccessKey:
-        type: "string"
-        description: "MinIO access key (if using minio storage)"
-      minioSecretKey:
-        type: "string"
-        description: "MinIO secret key (if using minio storage)"
-      jobTimeout:
-        type: "integer"
-        description: "Default job timeout in seconds"
-        default: 600
-        minimum: 1
-        maximum: 3600
-      artifactMaxMB:
-        type: "integer"
-        description: "Maximum artifact size in MB"
-        default: 200
-        minimum: 1
-        maximum: 1000
-  exampleConfig:
-    artifactStore: "local"
-    jobTimeout: 600
-    artifactMaxMB: 200
 
 env:
   MCP_TRANSPORT: "http"
