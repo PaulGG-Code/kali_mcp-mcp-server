@@ -368,121 +368,116 @@ if __name__ == "__main__":
             logger.info(f"Starting HTTP server on {host}:{port} with SSE transport")
             
             try:
-                # Try FastMCP's built-in SSE/HTTP transport support first
-                # FastMCP may support transport="sse" or transport="streamable-http" directly
-                logger.info("Attempting to use FastMCP's built-in SSE transport")
-                try:
-                    # Try SSE transport first (most common for MCP)
-                    mcp.run(transport="sse", host=host, port=port)
-                    return  # If this works, we're done
-                except (TypeError, ValueError, AttributeError) as sse_error:
-                    logger.info(f"FastMCP run with 'sse' transport failed: {sse_error}")
-                    logger.info("Trying 'streamable-http' transport instead")
-                    try:
-                        mcp.run(transport="streamable-http", host=host, port=port)
-                        return
-                    except (TypeError, ValueError, AttributeError) as http_error:
-                        logger.info(f"FastMCP run with 'streamable-http' transport failed: {http_error}")
-                        # Fall back to manual SSE setup
-                        logger.info("Falling back to manual SSE transport setup")
-                        raise http_error
+                import uvicorn
+                from mcp.server.sse import SseServerTransport
+                from mcp.server import Server
                 
-            except (TypeError, ValueError, AttributeError):
-                # FastMCP doesn't support direct SSE/HTTP transport, use manual setup
-                logger.info("FastMCP doesn't support direct HTTP transport, using manual SSE setup")
-                try:
-                    import uvicorn
-                    from mcp.server.sse import SseServerTransport
-                    from mcp.server import Server
-                    
-                    # Try to get the server from FastMCP
-                    server = None
-                    
-                    # Method 1: Try to trigger server creation by accessing a property/method
-                    # FastMCP might create the server lazily when first accessed
+                # FastMCP wraps a Server instance - we need to access it
+                # Based on FastMCP's architecture, the server might be stored in different ways
+                server = None
+                
+                # Log FastMCP structure for debugging
+                logger.info(f"FastMCP object type: {type(mcp)}")
+                fastmcp_attrs = [a for a in dir(mcp) if not a.startswith('__')]
+                logger.info(f"FastMCP attributes (first 20): {fastmcp_attrs[:20]}")
+                
+                # Method 1: Try direct attribute access (most common)
+                for attr_name in ['server', '_server', 'mcp_server', '_mcp_server']:
+                    if hasattr(mcp, attr_name):
+                        try:
+                            candidate = getattr(mcp, attr_name)
+                            # Check if it's a property that returns a Server
+                            if isinstance(candidate, Server):
+                                server = candidate
+                                logger.info(f"Found server via {attr_name} (direct)")
+                                break
+                            # Check if it's a callable that returns a Server
+                            elif callable(candidate) and not isinstance(candidate, type):
+                                try:
+                                    result = candidate()
+                                    if isinstance(result, Server):
+                                        server = result
+                                        logger.info(f"Found server via {attr_name}() (callable)")
+                                        break
+                                except Exception:
+                                    pass
+                        except Exception as e:
+                            logger.debug(f"Error accessing {attr_name}: {e}")
+                
+                # Method 2: Try accessing through __dict__ or vars()
+                if server is None:
                     try:
-                        # Try accessing a method that might trigger server creation
+                        mcp_vars = vars(mcp) if hasattr(mcp, '__dict__') else {}
+                        for key, value in mcp_vars.items():
+                            if isinstance(value, Server):
+                                server = value
+                                logger.info(f"Found server in vars()['{key}']")
+                                break
+                    except Exception as e:
+                        logger.debug(f"Error inspecting vars(): {e}")
+                
+                # Method 3: Try to access through all non-private attributes
+                if server is None:
+                    try:
+                        for attr_name in fastmcp_attrs:
+                            try:
+                                attr = getattr(mcp, attr_name)
+                                if isinstance(attr, Server):
+                                    server = attr
+                                    logger.info(f"Found server via attribute '{attr_name}'")
+                                    break
+                            except Exception:
+                                continue
+                    except Exception as e:
+                        logger.debug(f"Error in attribute search: {e}")
+                
+                # Method 4: Try to trigger server creation by accessing FastMCP internals
+                if server is None:
+                    logger.info("Attempting to trigger server creation...")
+                    try:
+                        # FastMCP might create the server when we access certain methods
+                        # Try calling something that would require the server
                         if hasattr(mcp, 'list_tools'):
                             try:
                                 # This might initialize the server
                                 _ = mcp.list_tools()
-                            except Exception:
-                                pass
-                    except Exception:
-                        pass
+                                # Now try to find it again
+                                if hasattr(mcp, 'server'):
+                                    server = mcp.server
+                                    logger.info("Found server after list_tools() call")
+                            except Exception as e:
+                                logger.debug(f"list_tools() failed: {e}")
+                    except Exception as e:
+                        logger.debug(f"Error triggering server creation: {e}")
+                
+                if server is None or not isinstance(server, Server):
+                    # Last resort: try to create server manually from FastMCP's tools
+                    logger.warning("Could not access FastMCP server, attempting manual server creation")
+                    # This is a fallback - we'll create a new Server and try to register tools
+                    # But first, let's see if we can get more info
+                    logger.error(f"FastMCP type: {type(mcp)}")
+                    logger.error(f"FastMCP dir (first 30): {[a for a in dir(mcp) if not a.startswith('__')][:30]}")
+                    raise RuntimeError("Cannot access FastMCP's underlying server instance")
+                
+                logger.info("Successfully obtained server instance from FastMCP")
+                
+                # Create SSE transport and run with uvicorn
+                logger.info("Creating SSE transport with /mcp endpoint")
+                transport = SseServerTransport("/mcp")
+                app = transport.create_app(server)
+                logger.info(f"SSE transport and app created successfully")
+                logger.info(f"Starting uvicorn server on {host}:{port}")
+                logger.info(f"Server will be available at http://{host}:{port}/mcp")
+                logger.info("Uvicorn starting now...")
+                uvicorn.run(app, host=host, port=port, log_level="info", access_log=False)
                     
-                    # Method 2: Direct attribute access
-                    if hasattr(mcp, '_server'):
-                        try:
-                            server = mcp._server
-                            if isinstance(server, Server):
-                                logger.info("Found server via _server attribute")
-                        except Exception as e:
-                            logger.debug(f"Error accessing _server: {e}")
-                    
-                    if server is None and hasattr(mcp, 'server'):
-                        try:
-                            server = mcp.server
-                            if isinstance(server, Server):
-                                logger.info("Found server via server attribute")
-                        except Exception as e:
-                            logger.debug(f"Error accessing server: {e}")
-                    
-                    # Method 3: Access through __dict__
-                    if server is None:
-                        try:
-                            mcp_dict = getattr(mcp, '__dict__', {})
-                            for key, value in mcp_dict.items():
-                                if isinstance(value, Server):
-                                    server = value
-                                    logger.info(f"Found server via __dict__[{key}]")
-                                    break
-                        except Exception as e:
-                            logger.debug(f"Error accessing __dict__: {e}")
-                    
-                    # Method 4: Try to access through all attributes
-                    if server is None:
-                        try:
-                            for attr_name in dir(mcp):
-                                if not attr_name.startswith('__'):
-                                    try:
-                                        attr = getattr(mcp, attr_name)
-                                        if isinstance(attr, Server):
-                                            server = attr
-                                            logger.info(f"Found server via attribute: {attr_name}")
-                                            break
-                                    except Exception:
-                                        continue
-                        except Exception as e:
-                            logger.debug(f"Error in attribute search: {e}")
-                    
-                    if server is None:
-                        # Log detailed information for debugging
-                        logger.error("Cannot access FastMCP's underlying server")
-                        logger.error(f"FastMCP type: {type(mcp)}")
-                        logger.error(f"FastMCP attributes: {[a for a in dir(mcp) if not a.startswith('__')]}")
-                        raise RuntimeError("Cannot access FastMCP's underlying server. FastMCP may need to be updated or accessed differently.")
-                    
-                    # Create SSE transport and run with uvicorn
-                    logger.info("Creating SSE transport with /mcp endpoint")
-                    transport = SseServerTransport("/mcp")
-                    app = transport.create_app(server)
-                    logger.info(f"Starting uvicorn server on {host}:{port}")
-                    logger.info(f"Server will be available at http://{host}:{port}/mcp")
-                    uvicorn.run(app, host=host, port=port, log_level="info", access_log=True)
-                    
-                except ImportError as e:
-                    logger.error(f"Required package missing: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    sys.exit(1)
-                except Exception as e:
-                    logger.error(f"Failed to start HTTP server: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    sys.exit(1)
+            except ImportError as e:
+                logger.error(f"Required package missing: {e}")
+                import traceback
+                traceback.print_exc()
+                sys.exit(1)
             except Exception as e:
-                logger.error(f"Unexpected error starting HTTP server: {e}")
+                logger.error(f"Failed to start HTTP server: {e}")
                 import traceback
                 traceback.print_exc()
                 sys.exit(1)
