@@ -451,15 +451,99 @@ if __name__ == "__main__":
                         logger.debug(f"Error triggering server creation: {e}")
                 
                 if server is None or not isinstance(server, Server):
-                    # Last resort: try to create server manually from FastMCP's tools
-                    logger.warning("Could not access FastMCP server, attempting manual server creation")
-                    # This is a fallback - we'll create a new Server and try to register tools
-                    # But first, let's see if we can get more info
-                    logger.error(f"FastMCP type: {type(mcp)}")
-                    logger.error(f"FastMCP dir (first 30): {[a for a in dir(mcp) if not a.startswith('__')][:30]}")
-                    raise RuntimeError("Cannot access FastMCP's underlying server instance")
-                
-                logger.info("Successfully obtained server instance from FastMCP")
+                    # Last resort: manually create Server instance and register tools
+                    logger.warning("Could not access FastMCP server, creating manual Server instance")
+                    logger.info("Creating new Server instance and registering tools manually")
+                    
+                    # Create a new Server instance
+                    server = Server("kali_mcp_server")
+                    
+                    # Import necessary types for tool registration
+                    from mcp.types import Tool, TextContent
+                    import inspect
+                    
+                    # Define all tools with their handlers
+                    # We'll register them directly with the server
+                    tools_dict = {}  # Store tool functions for handler
+                    tools_metadata = []  # Store tool metadata for list_tools
+                    
+                    tools_to_register = [
+                        ("nmap_scan", nmap_scan, "Run nmap scan against a target with optional ports."),
+                        ("nikto_scan", nikto_scan, "Run nikto webscan against a target."),
+                        ("sqlmap_scan", sqlmap_scan, "Run sqlmap against provided target URL."),
+                        ("gobuster_scan", gobuster_scan, "Run gobuster dir bruteforce against a target using a wordlist."),
+                        ("searchsploit_find", searchsploit_find, "Run searchsploit against a term."),
+                        ("binwalk_extract", binwalk_extract, "Run binwalk on a given file path present in mounted container."),
+                        ("apk_static", apk_static, "Run apktool and jadx decompilation on an APK present in container path."),
+                        ("health_check", health_check, "Return a simple JSON health status of the server."),
+                    ]
+                    
+                    # Build tool metadata and store functions
+                    for tool_name, tool_func, tool_description in tools_to_register:
+                        try:
+                            # Get function signature to build input schema
+                            sig = inspect.signature(tool_func)
+                            properties = {}
+                            required = []
+                            
+                            for param_name, param in sig.parameters.items():
+                                if param_name == "self":
+                                    continue
+                                param_type = "string"  # Default to string
+                                if param.annotation != inspect.Parameter.empty:
+                                    # Map Python types to JSON schema types
+                                    if param.annotation == str:
+                                        param_type = "string"
+                                    elif param.annotation == int:
+                                        param_type = "integer"
+                                    elif param.annotation == bool:
+                                        param_type = "boolean"
+                                
+                                properties[param_name] = {
+                                    "type": param_type,
+                                    "description": ""
+                                }
+                            
+                            # Store the function for later use
+                            tools_dict[tool_name] = tool_func
+                            
+                            # Store metadata for list_tools
+                            tools_metadata.append(Tool(
+                                name=tool_name,
+                                description=tool_description,
+                                inputSchema={
+                                    "type": "object",
+                                    "properties": properties,
+                                    "required": required
+                                }
+                            ))
+                            
+                            logger.info(f"Prepared tool: {tool_name}")
+                        except Exception as e:
+                            logger.error(f"Failed to prepare tool {tool_name}: {e}")
+                            import traceback
+                            traceback.print_exc()
+                    
+                    # Register call_tool handler (single handler for all tools)
+                    @server.call_tool()
+                    async def handle_call_tool(name: str, arguments: dict):
+                        if name in tools_dict:
+                            tool_func = tools_dict[name]
+                            # Call the function with the arguments
+                            result = await tool_func(**arguments)
+                            # Return as TextContent
+                            from mcp.types import TextContent
+                            return [TextContent(type="text", text=str(result))]
+                        raise ValueError(f"Unknown tool: {name}")
+                    
+                    # Register list_tools handler
+                    @server.list_tools()
+                    async def handle_list_tools():
+                        return tools_metadata
+                    
+                    logger.info(f"Successfully created manual Server instance with {len(tools_to_register)} tools")
+                else:
+                    logger.info("Successfully obtained server instance from FastMCP")
                 
                 # Create SSE transport and run with uvicorn
                 logger.info("Creating SSE transport with /mcp endpoint")
