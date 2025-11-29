@@ -362,14 +362,126 @@ if __name__ == "__main__":
         bucket_thread = threading.Thread(target=init_bucket_async, daemon=True)
         bucket_thread.start()
         
-        # FastMCP automatically detects transport from environment variables
-        # Just call mcp.run() and let FastMCP handle it
-        # For Smithery: MCP_TRANSPORT=http will be set, FastMCP will use HTTP
-        # For local dev: defaults to stdio
-        logger.info("Starting MCP server...")
-        logger.info(f"MCP_TRANSPORT environment: {os.environ.get('MCP_TRANSPORT', 'not set (defaults to stdio)')}")
-        sys.stderr.flush()
-        mcp.run()
+        # Check transport type and configure accordingly
+        transport_type = os.environ.get("MCP_TRANSPORT", "stdio")
+        
+        if transport_type == "http":
+            # HTTP transport for Smithery deployment (container runtime)
+            # FastMCP's run() doesn't support HTTP directly, so we need to manually set up SSE transport
+            port = int(os.environ.get("PORT", "8080"))
+            host = os.environ.get("HOST", "0.0.0.0")
+            logger.info(f"Starting MCP server with HTTP/SSE transport on {host}:{port}/mcp")
+            sys.stderr.flush()
+            
+            try:
+                import uvicorn
+                from mcp.server.sse import SseServerTransport
+                from mcp.server import Server
+                
+                # FastMCP wraps a Server instance - we need to access it
+                # FastMCP stores the server in the _server attribute
+                server = None
+                
+                # Try to get the server from FastMCP
+                if hasattr(mcp, '_server'):
+                    server = mcp._server
+                    logger.info("Found server via _server attribute")
+                elif hasattr(mcp, 'server'):
+                    server = mcp.server
+                    logger.info("Found server via server attribute")
+                else:
+                    # Try to access through __dict__
+                    mcp_dict = getattr(mcp, '__dict__', {})
+                    for key, value in mcp_dict.items():
+                        if isinstance(value, Server):
+                            server = value
+                            logger.info(f"Found server via __dict__['{key}']")
+                            break
+                
+                if server is None:
+                    # FastMCP might create server lazily - try calling run() in a way that initializes it
+                    # Actually, let's just create a new Server and register tools manually
+                    logger.warning("Could not access FastMCP's server, creating manual server")
+                    server = Server("kali_mcp_server")
+                    
+                    # Register all tools manually
+                    from mcp.types import Tool, TextContent
+                    import inspect
+                    
+                    tools_dict = {}
+                    tools_metadata = []
+                    
+                    tools_to_register = [
+                        ("nmap_scan", nmap_scan, "Run nmap scan against a target with optional ports."),
+                        ("nikto_scan", nikto_scan, "Run nikto webscan against a target."),
+                        ("sqlmap_scan", sqlmap_scan, "Run sqlmap against provided target URL."),
+                        ("gobuster_scan", gobuster_scan, "Run gobuster dir bruteforce against a target using a wordlist."),
+                        ("searchsploit_find", searchsploit_find, "Run searchsploit against a term."),
+                        ("binwalk_extract", binwalk_extract, "Run binwalk on a given file path present in mounted container."),
+                        ("apk_static", apk_static, "Run apktool and jadx decompilation on an APK present in container path."),
+                        ("health_check", health_check, "Return a simple JSON health status of the server."),
+                    ]
+                    
+                    for tool_name, tool_func, tool_description in tools_to_register:
+                        sig = inspect.signature(tool_func)
+                        properties = {}
+                        for param_name, param in sig.parameters.items():
+                            if param_name == "self":
+                                continue
+                            param_type = "string"
+                            if param.annotation != inspect.Parameter.empty:
+                                if param.annotation == str:
+                                    param_type = "string"
+                                elif param.annotation == int:
+                                    param_type = "integer"
+                                elif param.annotation == bool:
+                                    param_type = "boolean"
+                            properties[param_name] = {"type": param_type, "description": ""}
+                        
+                        tools_dict[tool_name] = tool_func
+                        tools_metadata.append(Tool(
+                            name=tool_name,
+                            description=tool_description,
+                            inputSchema={"type": "object", "properties": properties, "required": []}
+                        ))
+                    
+                    @server.call_tool()
+                    async def handle_call_tool(name: str, arguments: dict):
+                        if name in tools_dict:
+                            result = await tools_dict[name](**arguments)
+                            return [TextContent(type="text", text=str(result))]
+                        raise ValueError(f"Unknown tool: {name}")
+                    
+                    @server.list_tools()
+                    async def handle_list_tools():
+                        return tools_metadata
+                    
+                    logger.info(f"Created manual server with {len(tools_to_register)} tools")
+                
+                # Create SSE transport and run with uvicorn
+                logger.info("Creating SSE transport with /mcp endpoint")
+                transport = SseServerTransport("/mcp")
+                app = transport.create_app(server)
+                logger.info(f"Starting uvicorn server on {host}:{port}")
+                logger.info(f"Server available at http://{host}:{port}/mcp")
+                sys.stderr.flush()
+                uvicorn.run(app, host=host, port=port, log_level="info", access_log=False)
+                
+            except ImportError as e:
+                logger.error(f"Required package missing: {e}")
+                import traceback
+                traceback.print_exc()
+                sys.exit(1)
+            except Exception as e:
+                logger.error(f"Failed to start HTTP server: {e}")
+                import traceback
+                traceback.print_exc()
+                sys.exit(1)
+        else:
+            # Stdio transport for local development
+            logger.info("Starting MCP server with stdio transport")
+            sys.stderr.flush()
+            mcp.run()
     except Exception as e:
         logger.error(f"Server error: {e}", exc_info=True)
         import traceback
