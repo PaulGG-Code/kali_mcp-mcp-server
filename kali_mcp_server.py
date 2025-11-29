@@ -25,7 +25,8 @@ logging.basicConfig(
 logger = logging.getLogger("kali_mcp-server")
 
 # Initialize MCP server (no prompt parameter)
-mcp = FastMCP("kali_mcp_server")
+# Use stateless_http=True for better HTTP transport support
+mcp = FastMCP("kali_mcp_server", stateless_http=True)
 
 # Configuration with sensible defaults (override with ENV)
 JOB_TIMEOUT = int(os.environ.get("KALI_MCP_JOB_TIMEOUT", "600"))
@@ -347,6 +348,11 @@ if __name__ == "__main__":
     logger.info("=" * 60)
     logger.info("Starting kali_mcp MCP server...")
     logger.info("=" * 60)
+    logger.info(f"Python version: {sys.version}")
+    logger.info(f"Working directory: {os.getcwd()}")
+    logger.info(f"Environment MCP_TRANSPORT: {os.environ.get('MCP_TRANSPORT', 'not set')}")
+    logger.info(f"Environment PORT: {os.environ.get('PORT', 'not set')}")
+    logger.info(f"Environment HOST: {os.environ.get('HOST', 'not set')}")
     sys.stderr.flush()
     try:
         # Initialize bucket in background thread to avoid blocking startup
@@ -361,18 +367,39 @@ if __name__ == "__main__":
         import threading
         bucket_thread = threading.Thread(target=init_bucket_async, daemon=True)
         bucket_thread.start()
+        logger.info("Bucket initialization thread started")
+        sys.stderr.flush()
         
         # Check transport type and configure accordingly
         transport_type = os.environ.get("MCP_TRANSPORT", "stdio")
         
         if transport_type == "http":
             # HTTP transport for Smithery deployment (container runtime)
-            # FastMCP's run() doesn't support HTTP directly, so we need to manually set up SSE transport
             port = int(os.environ.get("PORT", "8080"))
             host = os.environ.get("HOST", "0.0.0.0")
-            logger.info(f"Starting MCP server with HTTP/SSE transport on {host}:{port}/mcp")
+            logger.info(f"Starting MCP server with HTTP transport on {host}:{port}")
             sys.stderr.flush()
             
+            # First, try FastMCP's built-in HTTP transport support
+            try:
+                logger.info("Attempting FastMCP's built-in HTTP transport...")
+                sys.stderr.flush()
+                # Try streamable-http first (recommended for stateless HTTP)
+                mcp.run(transport="streamable-http", host=host, port=port)
+                return  # Success!
+            except (TypeError, ValueError, AttributeError) as e1:
+                logger.info(f"streamable-http not supported: {e1}")
+                try:
+                    # Try regular http
+                    mcp.run(transport="http", host=host, port=port)
+                    return  # Success!
+                except (TypeError, ValueError, AttributeError) as e2:
+                    logger.info(f"http transport not supported: {e2}")
+                    # Fall back to manual SSE setup
+                    logger.info("Falling back to manual SSE transport setup...")
+                    sys.stderr.flush()
+            
+            # Manual SSE transport setup (fallback)
             try:
                 import uvicorn
                 from mcp.server.sse import SseServerTransport
@@ -402,7 +429,11 @@ if __name__ == "__main__":
                     # FastMCP might create server lazily - try calling run() in a way that initializes it
                     # Actually, let's just create a new Server and register tools manually
                     logger.warning("Could not access FastMCP's server, creating manual server")
+                    logger.info("Creating new Server instance...")
+                    sys.stderr.flush()
                     server = Server("kali_mcp_server")
+                    logger.info("Server instance created")
+                    sys.stderr.flush()
                     
                     # Register all tools manually
                     from mcp.types import Tool, TextContent
@@ -445,10 +476,14 @@ if __name__ == "__main__":
                             inputSchema={"type": "object", "properties": properties, "required": []}
                         ))
                     
+                    # Create a closure to capture tools_dict
+                    tools_dict_final = tools_dict.copy()
+                    
                     @server.call_tool()
                     async def handle_call_tool(name: str, arguments: dict):
-                        if name in tools_dict:
-                            result = await tools_dict[name](**arguments)
+                        if name in tools_dict_final:
+                            tool_func = tools_dict_final[name]
+                            result = await tool_func(**arguments)
                             return [TextContent(type="text", text=str(result))]
                         raise ValueError(f"Unknown tool: {name}")
                     
@@ -458,14 +493,58 @@ if __name__ == "__main__":
                     
                     logger.info(f"Created manual server with {len(tools_to_register)} tools")
                 
+                # Verify server is ready
+                if server is None:
+                    raise RuntimeError("Server instance is None - cannot start")
+                
+                logger.info("Server instance verified, creating SSE transport...")
+                sys.stderr.flush()
+                
                 # Create SSE transport and run with uvicorn
                 logger.info("Creating SSE transport with /mcp endpoint")
-                transport = SseServerTransport("/mcp")
-                app = transport.create_app(server)
-                logger.info(f"Starting uvicorn server on {host}:{port}")
-                logger.info(f"Server available at http://{host}:{port}/mcp")
                 sys.stderr.flush()
-                uvicorn.run(app, host=host, port=port, log_level="info", access_log=False)
+                
+                try:
+                    transport = SseServerTransport("/mcp")
+                    logger.info("SseServerTransport created successfully")
+                    sys.stderr.flush()
+                    
+                    app = transport.create_app(server)
+                    logger.info("FastAPI app created from transport successfully")
+                    sys.stderr.flush()
+                    
+                    # Add a simple health check endpoint for debugging
+                    @app.get("/health")
+                    async def health_check_endpoint():
+                        return {"status": "ok", "service": "kali_mcp"}
+                    
+                    @app.get("/")
+                    async def root():
+                        return {"service": "kali_mcp", "mcp_endpoint": "/mcp"}
+                    
+                    logger.info("=" * 60)
+                    logger.info(f"Starting uvicorn server on {host}:{port}")
+                    logger.info(f"MCP endpoint: http://{host}:{port}/mcp")
+                    logger.info(f"Health check: http://{host}:{port}/health")
+                    logger.info("=" * 60)
+                    sys.stderr.flush()
+                    
+                    # Start uvicorn - this blocks
+                    # Use loop="asyncio" to ensure compatibility
+                    uvicorn.run(
+                        app, 
+                        host=host, 
+                        port=port, 
+                        log_level="info", 
+                        access_log=True,
+                        loop="asyncio"
+                    )
+                except Exception as transport_error:
+                    logger.error(f"Error in transport setup: {transport_error}")
+                    import traceback
+                    traceback.print_exc()
+                    sys.stderr.flush()
+                    raise
                 
             except ImportError as e:
                 logger.error(f"Required package missing: {e}")
