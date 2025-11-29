@@ -360,54 +360,47 @@ if __name__ == "__main__":
             # HTTP transport for Smithery deployment using SSE
             port = int(os.environ.get("PORT", "8081"))
             host = os.environ.get("HOST", "0.0.0.0")
-            logger.info(f"Starting HTTP server on {host}:{port}")
+            logger.info(f"Starting HTTP server on {host}:{port} with SSE transport")
             
             try:
                 import uvicorn
                 from mcp.server.sse import SseServerTransport
                 
-                # FastMCP wraps an MCP Server - try to access it
-                # Check various possible attribute names
+                # FastMCP should expose the underlying server - try to access it
+                # FastMCP stores the server in _server attribute
                 server = None
-                for attr_name in ['_server', 'server', '_mcp_server', 'mcp_server']:
-                    if hasattr(mcp, attr_name):
-                        server = getattr(mcp, attr_name)
-                        logger.info(f"Found server via attribute: {attr_name}")
-                        break
-                
-                # If we can't find it, try to get it from the FastMCP instance's __dict__
-                if server is None:
-                    logger.info("Inspecting FastMCP instance attributes...")
-                    for key, value in mcp.__dict__.items():
-                        logger.info(f"  {key}: {type(value)}")
-                        if 'server' in key.lower() or isinstance(value, type(mcp)):
-                            try:
-                                # Check if it's an MCP Server instance
-                                if hasattr(value, 'list_tools') or hasattr(value, '_tools'):
-                                    server = value
-                                    logger.info(f"Found server via inspection: {key}")
-                                    break
-                            except:
-                                pass
-                
-                if server is None:
-                    # Last resort: try FastMCP's run method with SSE
-                    logger.warning("Could not access underlying server, trying FastMCP.run()")
-                    try:
-                        mcp.run(transport="sse", host=host, port=port)
-                    except Exception as e:
-                        logger.error(f"FastMCP.run() also failed: {e}")
-                        raise
+                if hasattr(mcp, '_server'):
+                    server = mcp._server
+                    logger.info("Found server via _server attribute")
+                elif hasattr(mcp, 'server'):
+                    server = mcp.server
+                    logger.info("Found server via server attribute")
                 else:
-                    # Create SSE transport and run with uvicorn
-                    logger.info("Creating SSE transport with /mcp endpoint")
-                    transport = SseServerTransport("/mcp")
-                    app = transport.create_app(server)
-                    logger.info(f"Starting uvicorn server on {host}:{port}")
-                    uvicorn.run(app, host=host, port=port, log_level="info")
+                    # Try to find it in __dict__
+                    for key, value in mcp.__dict__.items():
+                        # Check if it looks like an MCP Server
+                        if hasattr(value, 'list_tools') or (hasattr(value, '__class__') and 'Server' in str(value.__class__)):
+                            server = value
+                            logger.info(f"Found server via inspection: {key}")
+                            break
+                
+                if server is None:
+                    logger.error("Could not access underlying MCP server from FastMCP")
+                    logger.info("FastMCP attributes: " + ", ".join(mcp.__dict__.keys()))
+                    raise RuntimeError("Cannot access FastMCP's underlying server")
+                
+                # Create SSE transport and run with uvicorn
+                logger.info("Creating SSE transport with /mcp endpoint")
+                transport = SseServerTransport("/mcp")
+                app = transport.create_app(server)
+                logger.info(f"Starting uvicorn server on {host}:{port}")
+                logger.info(f"Server will be available at http://{host}:{port}/mcp")
+                uvicorn.run(app, host=host, port=port, log_level="info")
                     
             except ImportError as e:
                 logger.error(f"Required package missing: {e}")
+                import traceback
+                traceback.print_exc()
                 sys.exit(1)
             except Exception as e:
                 logger.error(f"Failed to start HTTP server: {e}")
