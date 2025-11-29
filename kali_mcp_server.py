@@ -346,48 +346,121 @@ async def health_check(user_id: str = "", job_id: str = "", target: str = "", po
 if __name__ == "__main__":
     logger.info("Starting kali_mcp MCP server...")
     try:
-        # Create artifact bucket if needed (non-blocking, will retry on first use if it fails)
-        if ARTIFACT_STORE_TYPE in ("minio", "s3"):
-            try:
-                ensure_bucket()
-                logger.info("Artifact bucket initialized successfully")
-            except Exception as e:
-                logger.warning(f"Could not initialize artifact bucket (will retry on first use): {e}")
+        # Initialize bucket in background thread to avoid blocking startup
+        def init_bucket_async():
+            if ARTIFACT_STORE_TYPE in ("minio", "s3"):
+                try:
+                    ensure_bucket()
+                    logger.info("Artifact bucket initialized successfully")
+                except Exception as e:
+                    logger.warning(f"Could not initialize artifact bucket (will retry on first use): {e}")
+        
+        import threading
+        bucket_thread = threading.Thread(target=init_bucket_async, daemon=True)
+        bucket_thread.start()
         
         # Check if we should use HTTP transport (for Smithery/deployment) or stdio (for local dev)
         transport_type = os.environ.get("MCP_TRANSPORT", "stdio")
         if transport_type == "http":
             # HTTP transport for Smithery deployment using SSE
-            port = int(os.environ.get("PORT", "8081"))
+            port = int(os.environ.get("PORT", "8080"))
             host = os.environ.get("HOST", "0.0.0.0")
             logger.info(f"Starting HTTP server on {host}:{port} with SSE transport")
             
             try:
                 import uvicorn
                 from mcp.server.sse import SseServerTransport
+                from mcp.server import Server
                 
-                # FastMCP should expose the underlying server - try to access it
-                # FastMCP stores the server in _server attribute
+                # FastMCP wraps a Server instance - we need to get it
+                # FastMCP typically creates the server lazily, so we may need to trigger its creation
                 server = None
-                if hasattr(mcp, '_server'):
-                    server = mcp._server
-                    logger.info("Found server via _server attribute")
-                elif hasattr(mcp, 'server'):
-                    server = mcp.server
-                    logger.info("Found server via server attribute")
-                else:
-                    # Try to find it in __dict__
-                    for key, value in mcp.__dict__.items():
-                        # Check if it looks like an MCP Server
-                        if hasattr(value, 'list_tools') or (hasattr(value, '__class__') and 'Server' in str(value.__class__)):
-                            server = value
-                            logger.info(f"Found server via inspection: {key}")
+                
+                # Method 1: Try direct attribute access (most common)
+                for attr_name in ['_server', 'server', '_mcp_server', 'mcp_server']:
+                    if hasattr(mcp, attr_name):
+                        candidate = getattr(mcp, attr_name)
+                        if isinstance(candidate, Server):
+                            server = candidate
+                            logger.info(f"Found server via {attr_name} attribute")
                             break
                 
+                # Method 2: Search through __dict__ for Server instance
                 if server is None:
-                    logger.error("Could not access underlying MCP server from FastMCP")
-                    logger.info("FastMCP attributes: " + ", ".join(mcp.__dict__.keys()))
-                    raise RuntimeError("Cannot access FastMCP's underlying server")
+                    for key, value in mcp.__dict__.items():
+                        if isinstance(value, Server):
+                            server = value
+                            logger.info(f"Found server via __dict__ inspection: {key}")
+                            break
+                
+                # Method 3: Try to access through FastMCP's internal methods
+                if server is None:
+                    try:
+                        # Some FastMCP versions might have a method to get the server
+                        if hasattr(mcp, 'get_server'):
+                            server = mcp.get_server()
+                            logger.info("Found server via get_server() method")
+                        elif hasattr(mcp, '_get_server'):
+                            server = mcp._get_server()
+                            logger.info("Found server via _get_server() method")
+                    except Exception as e:
+                        logger.debug(f"Method-based server access failed: {e}")
+                
+                # Method 4: Force server creation by accessing it through FastMCP's run method
+                # This is a last resort - we'll try to peek at what run() would use
+                if server is None:
+                    logger.warning("Could not find server via standard methods, attempting alternative access")
+                    # Try to inspect FastMCP's internal state more deeply
+                    try:
+                        # Check if FastMCP has a property or method that returns the server
+                        for name in dir(mcp):
+                            if not name.startswith('__'):
+                                try:
+                                    attr = getattr(mcp, name)
+                                    if isinstance(attr, Server):
+                                        server = attr
+                                        logger.info(f"Found server via deep inspection: {name}")
+                                        break
+                                except Exception:
+                                    continue
+                    except Exception as e:
+                        logger.debug(f"Deep inspection failed: {e}")
+                
+                # Method 5: Try to force server initialization by calling a method that might create it
+                if server is None:
+                    logger.warning("Attempting to force server initialization")
+                    try:
+                        # Some FastMCP versions might initialize the server when we access certain methods
+                        # Try calling list_tools or similar to trigger initialization
+                        if hasattr(mcp, 'list_tools'):
+                            try:
+                                mcp.list_tools()  # This might initialize the server
+                            except Exception:
+                                pass
+                        # Now try to find the server again
+                        for attr_name in ['_server', 'server']:
+                            if hasattr(mcp, attr_name):
+                                candidate = getattr(mcp, attr_name)
+                                if isinstance(candidate, Server):
+                                    server = candidate
+                                    logger.info(f"Found server after forced initialization via {attr_name}")
+                                    break
+                    except Exception as e:
+                        logger.debug(f"Force initialization attempt failed: {e}")
+                
+                if server is None:
+                    error_msg = "Cannot access FastMCP's underlying server. "
+                    error_msg += f"FastMCP type: {type(mcp)}, "
+                    error_msg += f"Available attributes: {[a for a in dir(mcp) if not a.startswith('__')]}"
+                    logger.error(error_msg)
+                    raise RuntimeError(error_msg)
+                
+                # Verify server has tools registered
+                try:
+                    tools = server.list_tools()
+                    logger.info(f"Server has {len(tools.tools)} tools registered")
+                except Exception as e:
+                    logger.warning(f"Could not list tools (may be normal): {e}")
                 
                 # Create SSE transport and run with uvicorn
                 logger.info("Creating SSE transport with /mcp endpoint")
