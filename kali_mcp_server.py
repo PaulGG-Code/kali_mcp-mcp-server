@@ -344,7 +344,10 @@ async def health_check(user_id: str = "", job_id: str = "", target: str = "", po
 # --- End of tools ---
 
 if __name__ == "__main__":
+    logger.info("=" * 60)
     logger.info("Starting kali_mcp MCP server...")
+    logger.info("=" * 60)
+    sys.stderr.flush()
     try:
         # Initialize bucket in background thread to avoid blocking startup
         def init_bucket_async():
@@ -362,11 +365,42 @@ if __name__ == "__main__":
         # Check if we should use HTTP transport (for Smithery/deployment) or stdio (for local dev)
         transport_type = os.environ.get("MCP_TRANSPORT", "stdio")
         if transport_type == "http":
-            # HTTP transport for Smithery deployment using SSE
+            # HTTP transport for Smithery deployment
             port = int(os.environ.get("PORT", "8080"))
             host = os.environ.get("HOST", "0.0.0.0")
-            logger.info(f"Starting HTTP server on {host}:{port} with SSE transport")
+            logger.info(f"Starting HTTP server on {host}:{port}")
+            sys.stderr.flush()
             
+            # First, try FastMCP's built-in HTTP transport support
+            try:
+                logger.info("Attempting to use FastMCP's built-in HTTP transport...")
+                sys.stderr.flush()
+                # Try streamable-http first (recommended)
+                try:
+                    mcp.run(transport="streamable-http", host=host, port=port, path="/mcp")
+                    return  # Success!
+                except (TypeError, ValueError, AttributeError) as e1:
+                    logger.info(f"streamable-http not supported: {e1}")
+                    # Try SSE
+                    try:
+                        mcp.run(transport="sse", host=host, port=port, path="/mcp")
+                        return  # Success!
+                    except (TypeError, ValueError, AttributeError) as e2:
+                        logger.info(f"sse not supported: {e2}")
+                        # Try http
+                        try:
+                            mcp.run(transport="http", host=host, port=port, path="/mcp")
+                            return  # Success!
+                        except (TypeError, ValueError, AttributeError) as e3:
+                            logger.warning(f"FastMCP built-in HTTP transport not available: {e3}")
+                            logger.info("Falling back to manual SSE transport setup...")
+                            sys.stderr.flush()
+                            raise e3
+            except Exception as builtin_error:
+                logger.info(f"FastMCP built-in transport failed, using manual setup: {builtin_error}")
+                sys.stderr.flush()
+            
+            # Manual setup fallback
             try:
                 import uvicorn
                 from mcp.server.sse import SseServerTransport
@@ -545,15 +579,46 @@ if __name__ == "__main__":
                 else:
                     logger.info("Successfully obtained server instance from FastMCP")
                 
+                # Verify server is ready
+                if server is None:
+                    raise RuntimeError("Server instance is None - cannot start")
+                
+                logger.info("Server instance verified, creating SSE transport...")
+                
                 # Create SSE transport and run with uvicorn
                 logger.info("Creating SSE transport with /mcp endpoint")
-                transport = SseServerTransport("/mcp")
-                app = transport.create_app(server)
-                logger.info(f"SSE transport and app created successfully")
-                logger.info(f"Starting uvicorn server on {host}:{port}")
-                logger.info(f"Server will be available at http://{host}:{port}/mcp")
-                logger.info("Uvicorn starting now...")
-                uvicorn.run(app, host=host, port=port, log_level="info", access_log=False)
+                sys.stderr.flush()  # Ensure logs are flushed
+                
+                try:
+                    transport = SseServerTransport("/mcp")
+                    logger.info("SseServerTransport created")
+                    sys.stderr.flush()
+                    
+                    app = transport.create_app(server)
+                    logger.info("FastAPI app created from transport")
+                    sys.stderr.flush()
+                    
+                    logger.info(f"SSE transport and app created successfully")
+                    logger.info(f"Starting uvicorn server on {host}:{port}")
+                    logger.info(f"Server will be available at http://{host}:{port}/mcp")
+                    logger.info("Uvicorn starting now...")
+                    sys.stderr.flush()
+                    
+                    # Start uvicorn with explicit configuration
+                    uvicorn.run(
+                        app, 
+                        host=host, 
+                        port=port, 
+                        log_level="info", 
+                        access_log=True,
+                        loop="asyncio"
+                    )
+                except Exception as transport_error:
+                    logger.error(f"Error creating transport or starting uvicorn: {transport_error}")
+                    import traceback
+                    traceback.print_exc()
+                    sys.stderr.flush()
+                    raise
                     
             except ImportError as e:
                 logger.error(f"Required package missing: {e}")
