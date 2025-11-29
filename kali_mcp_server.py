@@ -357,14 +357,56 @@ if __name__ == "__main__":
         # Check if we should use HTTP transport (for Smithery/deployment) or stdio (for local dev)
         transport_type = os.environ.get("MCP_TRANSPORT", "stdio")
         if transport_type == "http":
-            # HTTP transport for Smithery deployment using SSE (Server-Sent Events)
-            # FastMCP's run() method supports SSE transport which implements Streamable HTTP
+            # HTTP transport for Smithery deployment
             port = int(os.environ.get("PORT", "8081"))
             host = os.environ.get("HOST", "0.0.0.0")
-            logger.info(f"Starting HTTP server on {host}:{port} with SSE transport")
-            logger.info(f"Server will be available at http://{host}:{port}/mcp")
-            # FastMCP handles SSE transport internally, exposing /mcp endpoint
-            mcp.run(transport="sse", host=host, port=port)
+            logger.info(f"Starting HTTP server on {host}:{port}")
+            logger.info(f"FastMCP version: {mcp.__class__.__module__}")
+            
+            # Try different transport options
+            transports_to_try = ["sse", "http"]
+            last_error = None
+            
+            for transport_name in transports_to_try:
+                try:
+                    logger.info(f"Attempting to start with transport='{transport_name}'")
+                    mcp.run(transport=transport_name, host=host, port=port)
+                    break  # If successful, exit the loop
+                except TypeError as e:
+                    # Transport parameter might not be supported
+                    logger.warning(f"Transport '{transport_name}' failed with TypeError: {e}")
+                    last_error = e
+                    # Try accessing the server attribute to use SSE directly
+                    if transport_name == "sse":
+                        try:
+                            import uvicorn
+                            from mcp.server.sse import SseServerTransport
+                            # Try to get the server from FastMCP
+                            if hasattr(mcp, 'server'):
+                                server = mcp.server
+                            elif hasattr(mcp, '_server'):
+                                server = mcp._server
+                            else:
+                                raise AttributeError("Cannot access underlying MCP server")
+                            
+                            logger.info("Creating SSE app from underlying server")
+                            transport = SseServerTransport("/mcp")
+                            app = transport.create_app(server)
+                            logger.info(f"Starting uvicorn server on {host}:{port}")
+                            uvicorn.run(app, host=host, port=port, log_level="info")
+                            break
+                        except Exception as e2:
+                            logger.warning(f"Direct SSE setup failed: {e2}")
+                            last_error = e2
+                except Exception as e:
+                    logger.error(f"Transport '{transport_name}' failed: {e}")
+                    last_error = e
+            
+            if last_error:
+                logger.error(f"All transport methods failed. Last error: {last_error}")
+                import traceback
+                traceback.print_exc()
+                sys.exit(1)
         else:
             # Stdio transport for local development
             logger.info("Starting with stdio transport")
