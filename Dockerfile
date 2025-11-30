@@ -157,8 +157,6 @@ COPY kali_server.py /app/
 COPY src/ /app/src/
 COPY pyproject.toml /app/
 COPY README.md /app/
-COPY KALI_TOOLS_INSTALLATION.md /app/
-COPY PROBLEM_SOLVING_PROMPTS.md /app/
 
 # Create directories for sessions and workspaces
 RUN mkdir -p /app/sessions /app/workspaces
