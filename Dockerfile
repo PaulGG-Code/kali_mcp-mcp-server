@@ -40,8 +40,11 @@ RUN apt-get update && apt-get upgrade -y && \
     john \
     masscan \
     enum4linux \
+    exploitdb \
     # Web testing tools
     ffuf \
+    # Mobile security tools
+    apktool \
     # Binary analysis tools
     gdb-multiarch \
     binutils \
@@ -84,6 +87,10 @@ RUN apt-get update && apt-get upgrade -y && \
     libssl-dev \
     # Additional utilities
     software-properties-common \
+    # Java for JADX
+    openjdk-17-jdk \
+    unzip \
+    wget \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -110,6 +117,15 @@ RUN pip3 install --no-cache-dir \
     py-evm \
     # Additional tools
     && pip3 cache purge
+
+# Install JADX (Java decompiler for Android)
+RUN cd /opt && \
+    wget -q https://github.com/skylot/jadx/releases/download/v1.5.0/jadx-1.5.0.zip && \
+    unzip -q jadx-1.5.0.zip && \
+    mv jadx /opt/jadx && \
+    ln -s /opt/jadx/bin/jadx /usr/local/bin/jadx && \
+    ln -s /opt/jadx/bin/jadx-gui /usr/local/bin/jadx-gui && \
+    rm -f jadx-1.5.0.zip
 
 # Install AWS CLI v2
 RUN cd /tmp && \

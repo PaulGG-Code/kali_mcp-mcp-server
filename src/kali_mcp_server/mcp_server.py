@@ -424,6 +424,161 @@ def setup_mcp_server(kali_client: KaliToolsClient) -> FastMCP:
         "destructiveHint": False,
         "idempotentHint": True
     })
+    def masscan_scan(
+        target: str,
+        ports: str = "1-1000",
+        rate: str = "1000",
+        additional_args: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Execute Masscan ultra-fast port scanner to quickly scan large IP ranges and port ranges. Much faster than nmap for large-scale scans.
+
+        Args:
+            target: Target IP address, IP range, or CIDR notation (e.g., '192.168.1.1', '192.168.1.0/24', '10.0.0.1-10.0.0.255')
+            ports: Ports to scan - can be single port '80', range '1-1000', comma-separated list '22,80,443', or '--top-ports 100' (default: '1-1000')
+            rate: Scan rate in packets per second - higher values are faster but may be detected (default: '1000')
+            additional_args: Additional Masscan arguments like '--banners' for banner grabbing or '--exclude' to exclude IPs (default: '')
+
+        Returns:
+            Scan results including discovered open ports and services
+        """
+        data = {
+            "target": target,
+            "ports": ports,
+            "rate": rate,
+            "additional_args": additional_args
+        }
+        return kali_client.safe_post("api/tools/masscan", data)
+
+    @mcp.tool(annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True
+    })
+    def ffuf_scan(
+        url: str,
+        wordlist: str = "/usr/share/wordlists/dirb/common.txt",
+        mode: str = "dir",
+        param_name: str = "FUZZ",
+        additional_args: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Execute Ffuf fast web fuzzer to discover directories, files, virtual hosts, or fuzz parameters. Faster alternative to gobuster/dirb.
+
+        Args:
+            url: Target URL with FUZZ placeholder (e.g., 'http://example.com/FUZZ' for dir mode, 'http://example.com' for vhost mode)
+            wordlist: Path to wordlist file on Kali server (default: '/usr/share/wordlists/dirb/common.txt')
+            mode: Fuzzing mode - 'dir' for directory/file discovery, 'vhost' for virtual host discovery, 'param' for parameter fuzzing, or 'fuzz' for custom fuzzing (default: 'dir')
+            param_name: Parameter name for param mode (default: 'FUZZ')
+            additional_args: Additional Ffuf arguments like '-mc 200,204' for match codes, '-t 50' for threads, or '-H' for headers (default: '')
+
+        Returns:
+            Discovered paths, virtual hosts, or parameters with response codes and sizes
+        """
+        data = {
+            "url": url,
+            "wordlist": wordlist,
+            "mode": mode,
+            "param_name": param_name,
+            "additional_args": additional_args
+        }
+        return kali_client.safe_post("api/tools/ffuf", data)
+
+    @mcp.tool(annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True
+    })
+    def searchsploit_find(
+        query: str,
+        search_type: str = "all",
+        exact: bool = False,
+        additional_args: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Search Exploit-DB database for exploits, shellcodes, and papers matching the query. Useful for finding exploits after vulnerability discovery.
+
+        Args:
+            query: Search query - can be software name, CVE number, platform, or keyword (e.g., 'apache 2.4', 'CVE-2021-44228', 'windows smb')
+            search_type: Search scope - 'all' searches all fields, 'title' searches titles only, 'description' searches descriptions, 'author' searches authors, 'platform' searches platforms, 'type' searches exploit types (default: 'all')
+            exact: If True, perform exact match search (default: False)
+            additional_args: Additional searchsploit arguments like '--json' for JSON output or '--id' to show exploit IDs (default: '')
+
+        Returns:
+            Matching exploits with descriptions, platforms, and file paths
+        """
+        data = {
+            "query": query,
+            "search_type": search_type,
+            "exact": exact,
+            "additional_args": additional_args
+        }
+        return kali_client.safe_post("api/tools/searchsploit", data)
+
+    @mcp.tool(annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False
+    })
+    def apktool_decompile(
+        apk_file: str,
+        action: str = "d",
+        output_dir: str = "",
+        additional_args: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Decompile or build Android APK files using Apktool. Decompiles APK to Smali code and resources for analysis.
+
+        Args:
+            apk_file: Path to APK file to decompile or directory to build (e.g., '/path/to/app.apk' or '/path/to/decompiled')
+            action: Action to perform - 'd' or 'decode' to decompile APK, 'b' or 'build' to rebuild APK from decompiled directory (default: 'd')
+            output_dir: Output directory for decompiled files or output APK path (default: auto-generated based on APK name)
+            additional_args: Additional Apktool arguments like '-f' to force overwrite, '-r' to skip resources, or '-s' to skip sources (default: '')
+
+        Returns:
+            Decompilation/build results with output directory path
+        """
+        data = {
+            "apk_file": apk_file,
+            "action": action,
+            "output_dir": output_dir,
+            "additional_args": additional_args
+        }
+        return kali_client.safe_post("api/tools/apktool", data)
+
+    @mcp.tool(annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False
+    })
+    def jadx_decompile(
+        apk_file: str,
+        output_dir: str = "",
+        additional_args: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Decompile Android APK or DEX files to Java source code using JADX. Produces readable Java code (better than Apktool for source code analysis).
+
+        Args:
+            apk_file: Path to APK or DEX file to decompile (e.g., '/path/to/app.apk' or '/path/to/classes.dex')
+            output_dir: Output directory for decompiled Java source code (default: auto-generated based on APK name)
+            additional_args: Additional JADX arguments like '--deobf' for deobfuscation, '--no-imports' to skip imports, or '--show-bad-code' to show problematic code (default: '')
+
+        Returns:
+            Decompilation results with output directory path containing Java source files
+        """
+        data = {
+            "apk_file": apk_file,
+            "output_dir": output_dir,
+            "additional_args": additional_args
+        }
+        return kali_client.safe_post("api/tools/jadx", data)
+
+    @mcp.tool(annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True
+    })
     def server_health() -> Dict[str, Any]:
         """
         Check the health status and tool availability of the Kali API server.
@@ -1670,6 +1825,187 @@ def setup_mcp_server(kali_client: KaliToolsClient) -> FastMCP:
 Specify these paths in the wordlist parameter of scanning tools like gobuster, dirb, hydra, and john.
 """
 
+    @mcp.resource("kali://tools/masscan")
+    def get_masscan_info() -> str:
+        """
+        Information about Masscan port scanner tool.
+        """
+        return """# Masscan - Ultra-Fast Port Scanner
+
+## Overview
+Masscan is an Internet-scale port scanner that can scan the entire Internet in under 6 minutes, transmitting 10 million packets per second.
+
+## Key Features
+- **Extremely Fast**: Can scan large IP ranges in seconds
+- **Flexible Port Specification**: Single ports, ranges, or top ports
+- **Banner Grabbing**: Can grab service banners
+- **Output Formats**: XML, JSON, binary, grepable
+
+## Common Use Cases
+- Initial reconnaissance of large networks
+- Finding all open ports on a subnet
+- Quick port discovery before detailed nmap scans
+- Scanning entire IP ranges for specific services
+
+## Usage Tips
+- Use `--rate` to control scan speed (default: 1000 pps)
+- Use `--banners` to grab service banners
+- Use `--top-ports 100` for common ports
+- Use `--exclude` to skip certain IPs
+- Requires root/sudo privileges
+
+## Example Commands
+- `masscan -p1-65535 192.168.1.0/24 --rate=1000`
+- `masscan -p80,443 --banners 10.0.0.0/8`
+- `masscan --top-ports 1000 192.168.1.1-192.168.1.255`
+"""
+
+    @mcp.resource("kali://tools/ffuf")
+    def get_ffuf_info() -> str:
+        """
+        Information about Ffuf web fuzzer tool.
+        """
+        return """# Ffuf - Fast Web Fuzzer
+
+## Overview
+Ffuf is a fast web fuzzer written in Go, designed for finding hidden files, directories, and parameters in web applications.
+
+## Key Features
+- **Very Fast**: Written in Go for high performance
+- **Multiple Modes**: Directory, vhost, parameter, and custom fuzzing
+- **Flexible Matching**: Match/Filter by status codes, sizes, words, lines
+- **Recursive Fuzzing**: Can recursively fuzz discovered directories
+
+## Common Use Cases
+- Directory and file discovery
+- Virtual host enumeration
+- Parameter fuzzing
+- API endpoint discovery
+- Content discovery
+
+## Usage Tips
+- Use `-mc 200,204,301,302` to match specific status codes
+- Use `-fs 0` to filter out empty responses
+- Use `-t` to set thread count (default: 40)
+- Use `-H` to add custom headers
+- Use `-recursion` for recursive directory discovery
+
+## Example Commands
+- `ffuf -u http://example.com/FUZZ -w wordlist.txt`
+- `ffuf -u http://example.com -H "Host: FUZZ" -w subdomains.txt`
+- `ffuf -u http://example.com?FUZZ=value -w params.txt`
+"""
+
+    @mcp.resource("kali://tools/searchsploit")
+    def get_searchsploit_info() -> str:
+        """
+        Information about Searchsploit Exploit-DB search tool.
+        """
+        return """# Searchsploit - Exploit-DB Search Tool
+
+## Overview
+Searchsploit is a command-line search tool for Exploit-DB that allows you to search for exploits, shellcodes, and papers.
+
+## Key Features
+- **Comprehensive Database**: Searches Exploit-DB with 50,000+ exploits
+- **Multiple Search Types**: Title, description, author, platform, type
+- **Exact Matching**: Option for exact phrase matching
+- **JSON Output**: Can output results in JSON format
+- **Copy Exploits**: Can copy exploit files to working directory
+
+## Common Use Cases
+- Finding exploits for discovered vulnerabilities
+- Searching for CVEs and security advisories
+- Finding exploits for specific software versions
+- Researching exploitation techniques
+
+## Usage Tips
+- Use `--exact` for exact phrase matching
+- Use `-t` to search titles only (faster)
+- Use `--json` for structured output
+- Use `-m` to copy exploit to current directory
+- Use `-p` to show exploit path
+- Use `-w` to show exploit URL
+
+## Example Commands
+- `searchsploit apache 2.4`
+- `searchsploit -t windows smb`
+- `searchsploit --exact "CVE-2021-44228"`
+- `searchsploit -j apache | jq`
+"""
+
+    @mcp.resource("kali://tools/apktool")
+    def get_apktool_info() -> str:
+        """
+        Information about Apktool Android APK analysis tool.
+        """
+        return """# Apktool - Android APK Analysis Tool
+
+## Overview
+Apktool is a tool for reverse engineering Android APK files. It can decode resources to nearly original form and rebuild them after making modifications.
+
+## Key Features
+- **Decompile APKs**: Extracts Smali code and resources
+- **Rebuild APKs**: Can rebuild modified APKs
+- **Resource Analysis**: Extracts AndroidManifest.xml, resources, assets
+- **Smali Editing**: Produces editable Smali code
+
+## Common Use Cases
+- Android app security analysis
+- Reverse engineering Android applications
+- Modifying APK behavior
+- Extracting resources and assets
+- Analyzing app permissions and components
+
+## Usage Tips
+- Use `-f` to force overwrite existing files
+- Use `-r` to skip decoding resources
+- Use `-s` to skip decoding sources (Smali)
+- Use `-o` to specify output directory
+- Decompiled files are in Smali format (not Java)
+
+## Example Commands
+- `apktool d app.apk -o output/`
+- `apktool d app.apk -r -s` (resources only)
+- `apktool b output/ -o modified.apk`
+"""
+
+    @mcp.resource("kali://tools/jadx")
+    def get_jadx_info() -> str:
+        """
+        Information about JADX Android decompiler tool.
+        """
+        return """# JADX - Android Decompiler
+
+## Overview
+JADX is a tool to decompile Android APK and DEX files to Java source code. It produces readable Java code unlike Apktool which produces Smali.
+
+## Key Features
+- **Java Source Code**: Produces readable Java code
+- **Deobfuscation**: Can deobfuscate obfuscated code
+- **GUI and CLI**: Both graphical and command-line interfaces
+- **Multiple Formats**: Supports APK, DEX, AAR, ZIP formats
+
+## Common Use Cases
+- Android app reverse engineering
+- Source code analysis
+- Understanding app logic and vulnerabilities
+- Extracting hardcoded secrets and keys
+- Analyzing app security
+
+## Usage Tips
+- Use `--deobf` for deobfuscation
+- Use `--no-imports` to skip imports
+- Use `--show-bad-code` to show problematic code
+- Use `-d` to specify output directory
+- Produces much more readable code than Apktool
+
+## Example Commands
+- `jadx -d output/ app.apk`
+- `jadx --deobf -d output/ app.apk`
+- `jadx-gui app.apk` (GUI mode)
+"""
+
     @mcp.resource("kali://guides/safe-testing")
     def get_safety_guide() -> str:
         """
@@ -1747,7 +2083,8 @@ Specify these paths in the wordlist parameter of scanning tools like gobuster, d
 
 ## Phase 1: Initial Discovery
 1. Run server_health() to verify Kali tools are available
-2. Run nmap_scan(target="{target}", scan_type="-sV", ports="") for initial port discovery
+2. For large IP ranges, use masscan_scan(target="{target}", ports="1-65535", rate="1000") for fast port discovery
+3. For single hosts, run nmap_scan(target="{target}", scan_type="-sV", ports="") for detailed port discovery
 
 ## Phase 2: Service Enumeration
 Based on open ports from Phase 1:
@@ -1757,10 +2094,12 @@ Based on open ports from Phase 1:
 
 ## Phase 3: Directory Enumeration
 If web services found:
-- Run gobuster_scan(url="http://{target}", mode="dir")
-- Run dirb_scan(url="http://{target}")
+- Run ffuf_scan(url="http://{target}/FUZZ", mode="dir") for fast directory discovery
+- Run gobuster_scan(url="http://{target}", mode="dir") for additional enumeration
+- Run dirb_scan(url="http://{target}") for comprehensive path discovery
 
 ## Phase 4: Vulnerability Assessment
+- Use searchsploit_find(query="<software> <version>") to find exploits for discovered services
 - Analyze all results for potential vulnerabilities
 - Document findings and prioritize exploitation targets
 """
@@ -1779,16 +2118,24 @@ If web services found:
 1. Run nikto_scan(target="{url}") to identify server vulnerabilities
 
 ## Phase 2: Content Discovery
-1. Run gobuster_scan(url="{url}", mode="dir") for directory enumeration
-2. Run dirb_scan(url="{url}") for additional path discovery
+1. Run ffuf_scan(url="{url}/FUZZ", mode="dir") for fast directory/file discovery
+2. Run gobuster_scan(url="{url}", mode="dir") for additional directory enumeration
+3. Run dirb_scan(url="{url}") for comprehensive path discovery
+4. Run ffuf_scan(url="{url}?FUZZ=value", mode="param") for parameter fuzzing
 
-## Phase 3: CMS Detection & Testing
+## Phase 3: Virtual Host Discovery
+1. Run ffuf_scan(url="{url}", mode="vhost", wordlist="/usr/share/wordlists/dnsmap.txt") to discover virtual hosts
+
+## Phase 4: CMS Detection & Testing
 If WordPress is detected:
 - Run wpscan_analyze(url="{url}")
 
-## Phase 4: Injection Testing
+## Phase 5: Injection Testing
 For forms and parameters found:
 - Run sqlmap_scan(url="{url}/vulnerable_page.php?id=1") for SQL injection
+
+## Phase 6: Exploit Research
+- Use searchsploit_find(query="<web_server> <version>") to find exploits for discovered technologies
 
 ## Safety Reminders
 - Ensure you have written authorization
@@ -2500,6 +2847,89 @@ cloud_metadata_query(
 - [ ] Sensitive data identified
 - [ ] Privilege escalation paths found
 - [ ] Findings documented
+"""
+
+    @mcp.prompt()
+    def android_app_analysis_workflow(
+        session_id: str,
+        apk_file: str
+    ) -> str:
+        """
+        Generate an Android application security analysis workflow.
+
+        Args:
+            session_id: Session ID from create_analysis_session()
+            apk_file: Path to APK file to analyze
+        """
+        return f"""# Android Application Security Analysis Workflow
+
+## Phase 1: Initial Setup
+1. Create analysis session: create_analysis_session(user_id="android_analyst")
+2. Upload APK file: upload_binary(session_id="{session_id}", file_path="{apk_file}")
+
+## Phase 2: Decompilation with JADX
+1. Run jadx_decompile(apk_file="{apk_file}") to get readable Java source code
+   - Review Java source for:
+     - Hardcoded secrets, API keys, credentials
+     - Insecure cryptographic implementations
+     - SQL injection vulnerabilities
+     - Intent vulnerabilities
+     - Insecure data storage
+
+## Phase 3: Decompilation with Apktool
+1. Run apktool_decompile(apk_file="{apk_file}", action="d") to get Smali code and resources
+   - Review AndroidManifest.xml for:
+     - Permissions requested
+     - Exported components (activities, services, receivers)
+     - Intent filters
+     - Debug flags
+   - Review resources for:
+     - Hardcoded strings
+     - API endpoints
+     - Configuration files
+
+## Phase 4: Static Analysis
+1. Analyze AndroidManifest.xml for security issues:
+   - Overly broad permissions
+   - Exported components without proper protection
+   - Debug flags enabled
+   - Backup allowed
+
+2. Review source code for common vulnerabilities:
+   - Insecure data storage (SharedPreferences, SQLite)
+   - Insecure communication (HTTP instead of HTTPS)
+   - Weak cryptography
+   - Code injection vulnerabilities
+   - Intent hijacking
+
+## Phase 5: Dynamic Analysis (if needed)
+1. Install APK on emulator/device
+2. Use interactive shell for runtime analysis
+3. Monitor network traffic
+4. Check file system access
+
+## Common Security Issues to Look For
+- Hardcoded credentials and API keys
+- Insecure data storage
+- Weak or no encryption
+- Insecure network communication
+- Improper input validation
+- Exported components without protection
+- Intent vulnerabilities
+- SQL injection in local databases
+- Insecure random number generation
+
+## Checklist
+- [ ] APK decompiled with JADX
+- [ ] APK decompiled with Apktool
+- [ ] AndroidManifest.xml reviewed
+- [ ] Source code reviewed for secrets
+- [ ] Permissions analyzed
+- [ ] Exported components identified
+- [ ] Network communication reviewed
+- [ ] Data storage mechanisms analyzed
+- [ ] Cryptographic implementations reviewed
+- [ ] Vulnerabilities documented
 """
 
     @mcp.prompt()

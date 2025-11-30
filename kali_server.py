@@ -670,6 +670,207 @@ def enum4linux():
             "error": f"Server error: {str(e)}"
         }), 500
 
+@app.route("/api/tools/masscan", methods=["POST"])
+def masscan():
+    """Execute masscan with the provided parameters."""
+    try:
+        params = request.json
+        target = params.get("target", "")
+        ports = params.get("ports", "1-1000")
+        rate = params.get("rate", "1000")
+        additional_args = params.get("additional_args", "")
+        
+        if not target:
+            logger.warning("Masscan called without target parameter")
+            return jsonify({
+                "error": "Target parameter is required"
+            }), 400
+        
+        # Masscan requires root privileges, so we use sudo
+        command = f"sudo masscan -p{ports} --rate={rate} {target}"
+        
+        if additional_args:
+            command += f" {additional_args}"
+        
+        result = execute_command(command)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error in masscan endpoint: {str(e)}")
+        logger.error(traceback.format_exc())
+        return jsonify({
+            "error": f"Server error: {str(e)}"
+        }), 500
+
+@app.route("/api/tools/ffuf", methods=["POST"])
+def ffuf():
+    """Execute ffuf with the provided parameters."""
+    try:
+        params = request.json
+        url = params.get("url", "")
+        wordlist = params.get("wordlist", "/usr/share/wordlists/dirb/common.txt")
+        mode = params.get("mode", "dir")
+        additional_args = params.get("additional_args", "")
+        
+        if not url:
+            logger.warning("Ffuf called without URL parameter")
+            return jsonify({
+                "error": "URL parameter is required"
+            }), 400
+        
+        # Build ffuf command based on mode
+        if mode == "dir":
+            command = f"ffuf -u {url}/FUZZ -w {wordlist}"
+        elif mode == "vhost":
+            command = f"ffuf -u {url} -H 'Host: FUZZ' -w {wordlist}"
+        elif mode == "param":
+            param_name = params.get("param_name", "FUZZ")
+            command = f"ffuf -u {url}?{param_name}=FUZZ -w {wordlist}"
+        elif mode == "fuzz":
+            # For custom fuzzing, user should provide full URL with FUZZ placeholder
+            command = f"ffuf -u {url} -w {wordlist}"
+        else:
+            return jsonify({
+                "error": f"Invalid mode: {mode}. Must be one of: dir, vhost, param, fuzz"
+            }), 400
+        
+        if additional_args:
+            command += f" {additional_args}"
+        
+        result = execute_command(command)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error in ffuf endpoint: {str(e)}")
+        logger.error(traceback.format_exc())
+        return jsonify({
+            "error": f"Server error: {str(e)}"
+        }), 500
+
+@app.route("/api/tools/searchsploit", methods=["POST"])
+def searchsploit():
+    """Execute searchsploit to search Exploit-DB for exploits."""
+    try:
+        params = request.json
+        query = params.get("query", "")
+        search_type = params.get("search_type", "all")  # all, title, description, author, platform, type
+        exact = params.get("exact", False)
+        additional_args = params.get("additional_args", "")
+        
+        if not query:
+            logger.warning("Searchsploit called without query parameter")
+            return jsonify({
+                "error": "Query parameter is required"
+            }), 400
+        
+        # Build searchsploit command
+        command = "searchsploit"
+        
+        if exact:
+            command += " --exact"
+        
+        if search_type != "all":
+            command += f" -{search_type[0]}"  # -t for title, -d for description, etc.
+        
+        command += f" {query}"
+        
+        if additional_args:
+            command += f" {additional_args}"
+        
+        result = execute_command(command)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error in searchsploit endpoint: {str(e)}")
+        logger.error(traceback.format_exc())
+        return jsonify({
+            "error": f"Server error: {str(e)}"
+        }), 500
+
+@app.route("/api/tools/apktool", methods=["POST"])
+def apktool():
+    """Execute apktool to decompile/compile Android APK files."""
+    try:
+        params = request.json
+        apk_file = params.get("apk_file", "")
+        action = params.get("action", "d")  # d for decode, b for build
+        output_dir = params.get("output_dir", "")
+        additional_args = params.get("additional_args", "")
+        
+        if not apk_file:
+            logger.warning("Apktool called without apk_file parameter")
+            return jsonify({
+                "error": "apk_file parameter is required"
+            }), 400
+        
+        # Validate action
+        if action not in ["d", "b", "decode", "build"]:
+            return jsonify({
+                "error": "Invalid action. Must be 'd'/'decode' or 'b'/'build'"
+            }), 400
+        
+        # Normalize action
+        if action == "decode":
+            action = "d"
+        elif action == "build":
+            action = "b"
+        
+        # Build command
+        if action == "d":
+            if not output_dir:
+                # Use default output directory (APK name without extension)
+                output_dir = os.path.splitext(os.path.basename(apk_file))[0]
+            command = f"apktool d {apk_file} -o {output_dir}"
+        else:  # build
+            if not output_dir:
+                output_dir = os.path.dirname(apk_file) if os.path.dirname(apk_file) else "."
+            command = f"apktool b {apk_file} -o {output_dir}/output.apk"
+        
+        if additional_args:
+            command += f" {additional_args}"
+        
+        result = execute_command(command)
+        result["output_directory"] = output_dir
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error in apktool endpoint: {str(e)}")
+        logger.error(traceback.format_exc())
+        return jsonify({
+            "error": f"Server error: {str(e)}"
+        }), 500
+
+@app.route("/api/tools/jadx", methods=["POST"])
+def jadx():
+    """Execute jadx to decompile Android APK/DEX files to Java source."""
+    try:
+        params = request.json
+        apk_file = params.get("apk_file", "")
+        output_dir = params.get("output_dir", "")
+        additional_args = params.get("additional_args", "")
+        
+        if not apk_file:
+            logger.warning("Jadx called without apk_file parameter")
+            return jsonify({
+                "error": "apk_file parameter is required"
+            }), 400
+        
+        # Set default output directory if not provided
+        if not output_dir:
+            output_dir = os.path.splitext(os.path.basename(apk_file))[0] + "_jadx"
+        
+        # Build jadx command
+        command = f"jadx -d {output_dir} {apk_file}"
+        
+        if additional_args:
+            command += f" {additional_args}"
+        
+        result = execute_command(command)
+        result["output_directory"] = output_dir
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error in jadx endpoint: {str(e)}")
+        logger.error(traceback.format_exc())
+        return jsonify({
+            "error": f"Server error: {str(e)}"
+        }), 500
+
 
 # ============================================================================
 # SESSION MANAGEMENT ENDPOINTS
